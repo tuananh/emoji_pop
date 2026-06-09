@@ -346,6 +346,10 @@ void EmojiPop::Draw() {
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F,
+            ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused | ImGuiInputFlags_RouteOverActive))
+        RequestFocusSearch();
+
     const ImGuiStyle& style = ImGui::GetStyle();
     const float frame_h = ImGui::GetFrameHeight();
     const float icon_sz_y = 16.f;
