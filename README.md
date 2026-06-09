@@ -16,7 +16,7 @@ Requires OpenGL, FreeType, and HarfBuzz.
 ## Usage
 
 ```bash
-./build/emoji_pop
+$ emoji_pop
 ```
 
 Running it again while the picker is already open just focuses the window. Press **Escape** to hide it.
@@ -24,6 +24,15 @@ Running it again while the picker is already open just focuses the window. Press
 Search by name or keyword (e.g. `shit`, `thumbs up`). Arrow keys and Enter work for keyboard navigation.
 
 Settings are saved to `~/.config/emoji_pop/settings` (skin tone and recents).
+
+### Usage with i3
+
+Add to `~/.config/i3/config`:
+
+```
+bindsym $mod+period exec --no-startup-id emoji_pop
+for_window [class="Emoji Pop"] floating enable, move position center, resize set 640 480
+```
 
 ## Hotkey
 
