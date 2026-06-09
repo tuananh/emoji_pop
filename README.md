@@ -1,6 +1,8 @@
 # emoji pop
 
-A fast Linux emoji picker. Bind a hotkey to run `emoji_pop` — it stays in the background and pops up when you need it.
+The fastest Linux emoji picker. Bind a hotkey to run `emoji_pop` — it stays in the background and pops up when you need it.
+
+![Emoji Pop main window](assets/main_window.png)
 
 ## Build
 
