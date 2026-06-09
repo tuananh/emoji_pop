@@ -101,17 +101,6 @@ void NormalizeSearch(const char* in, char* out, size_t cap) {
     out[j] = '\0';
 }
 
-bool FieldMatchesToken(const char* field, const char* token) {
-    return field && field[0] && ContainsCI(field, token);
-}
-
-int FieldTokenScore(const char* field, const char* token, int word_score, int substr_score) {
-    if (!field || !field[0]) return 0;
-    if (ContainsWordCI(field, token)) return word_score;
-    if (ContainsCI(field, token)) return substr_score;
-    return 0;
-}
-
 int TokenizeSearch(const char* query, char tokens[][64], int max_tokens) {
     int count = 0;
     for (const char* p = query; *p && count < max_tokens; ) {
@@ -139,75 +128,45 @@ bool TokenMatchesFields(const Emoji& e, const char* token, bool word_only) {
         return true;
     if (word_only)
         return false;
-    return FieldMatchesToken(e.name, token) ||
-           FieldMatchesToken(e.keywords, token) ||
-           FieldMatchesToken(e.aliases, token);
+    return ContainsCI(e.name, token) || ContainsCI(e.keywords, token) || ContainsCI(e.aliases, token);
+}
+
+// 4 = exact, 3 = prefix word, 2 = word, 1 = substring, 0 = no match.
+int FieldMatchScore(const char* field, const char* token) {
+    if (!field || !field[0]) return 0;
+    if (EqualsCI(field, token)) return 4;
+    if (StartsWithWordCI(field, token)) return 3;
+    if (ContainsWordCI(field, token)) return 2;
+    if (ContainsCI(field, token)) return 1;
+    return 0;
 }
 
 int ScoreEmoji(const Emoji& e, const char* query) {
     if (!query[0]) return 1;
 
-    const bool phrase_query = std::strchr(query, ' ') != nullptr;
-    if (phrase_query && EqualsCI(e.name, query))
-        return 1000000;
-
-    int score = 0;
-    if (phrase_query && ContainsCI(e.name, query))
-        score += 500000;
-
     char tokens[8][64];
     const int token_count = TokenizeSearch(query, tokens, 8);
-    if (token_count == 0)
-        return score;
+    if (token_count == 0) return 1;
 
     for (int i = 0; i < token_count; ++i) {
         if (!TokenMatchesFields(e, tokens[i], token_count > 1))
             return 0;
     }
 
-    if (token_count == 1 && !phrase_query) {
-        const char* token = tokens[0];
-        if (EqualsCI(e.name, token)) return 900000;
-
-        if (ContainsWordCI(e.name, token)) {
-            int name_score = 800000;
-            if (StartsWithWordCI(e.name, token)) name_score += 50000;
-            name_score += FieldTokenScore(e.keywords, token, 15000, 0);
-            name_score += FieldTokenScore(e.aliases, token, 10000, 0);
-            return name_score;
-        }
-
-        int score = FieldTokenScore(e.keywords, token, 50000, 5000);
-        score += FieldTokenScore(e.aliases, token, 20000, 3000);
-        score += FieldTokenScore(e.name, token, 0, 8000);
-        return score;
+    int score = 0;
+    if (token_count > 1) {
+        if (EqualsCI(e.name, query)) score += 1000;
+        else if (ContainsCI(e.name, query)) score += 500;
     }
 
     for (int i = 0; i < token_count; ++i) {
         const char* token = tokens[i];
-        int best = FieldTokenScore(e.name, token, 40000, 15000);
-        if (!best) best = FieldTokenScore(e.keywords, token, 8000, 3000);
-        if (!best) best = FieldTokenScore(e.aliases, token, 3000, 1000);
-        score += best;
+        score += FieldMatchScore(e.name, token) * 10;
+        score += FieldMatchScore(e.keywords, token) * 3;
+        score += FieldMatchScore(e.aliases, token);
     }
-
-    bool all_words_in_name = true;
-    for (int i = 0; i < token_count; ++i) {
-        if (!ContainsWordCI(e.name, tokens[i])) {
-            all_words_in_name = false;
-            break;
-        }
-    }
-    if (all_words_in_name) score += 200000;
 
     return score;
-}
-
-bool EmojiMatchesToken(const Emoji& e, const char* token) {
-    if (!token[0]) return true;
-    return FieldMatchesToken(e.name, token) ||
-           FieldMatchesToken(e.keywords, token) ||
-           FieldMatchesToken(e.aliases, token);
 }
 
 void BuildGlyph(const Emoji& e, int tone, char* out, size_t cap) {
