@@ -272,6 +272,45 @@ void DrawEmojiImage(const char* glyph, ImVec2 pos, ImVec2 size) {
     ImGui::GetWindowDrawList()->AddText(pos, IM_COL32_WHITE, display);
 }
 
+void StripSkinToneSuffix(char* glyph) {
+    const size_t len = std::strlen(glyph);
+    for (int t = 1; t < 6; ++t) {
+        const size_t mod_len = std::strlen(kToneMods[t]);
+        if (len >= mod_len && std::strcmp(glyph + len - mod_len, kToneMods[t]) == 0) {
+            glyph[len - mod_len] = '\0';
+            return;
+        }
+    }
+}
+
+const Emoji* FindEmojiByGlyph(const char* glyph) {
+    if (!glyph || !glyph[0]) return nullptr;
+    char normalized[32];
+    StripVs16(glyph, normalized, sizeof(normalized));
+    StripSkinToneSuffix(normalized);
+    for (int i = 0; i < kEmojiCount; ++i) {
+        char base[32];
+        StripVs16(kEmojis[i].glyph, base, sizeof(base));
+        if (std::strcmp(normalized, base) == 0)
+            return &kEmojis[i];
+    }
+    return nullptr;
+}
+
+bool EmojiCellHovered() {
+    if (ImGui::IsItemFocused())
+        return true;
+    const ImVec2 rmin = ImGui::GetItemRectMin();
+    const ImVec2 rmax = ImGui::GetItemRectMax();
+    return ImGui::IsMouseHoveringRect(rmin, rmax, false);
+}
+
+void SetEmojiPreview(const char* glyph, const Emoji* emoji, char* preview_glyph, const Emoji** hover) {
+    std::strncpy(preview_glyph, glyph, 31);
+    preview_glyph[31] = '\0';
+    *hover = emoji ? emoji : FindEmojiByGlyph(glyph);
+}
+
 } // namespace
 
 void EmojiPop::Filter() {
@@ -412,12 +451,24 @@ void EmojiPop::Draw() {
 
     ImGui::Spacing();
     ImGui::Separator();
+    char preview_glyph[32] = {};
+    const Emoji* hover = nullptr;
+    struct RecentHit {
+        ImVec2 min;
+        ImVec2 max;
+        char glyph[kRecentGlyphSize];
+    };
+    RecentHit recent_hits[kMaxRecents] = {};
     if (recent_count > 0) {
         for (int i = 0; i < recent_count; ++i) {
             if (i > 0) ImGui::SameLine();
             ImGui::PushID(i);
             if (EmojiButton("##recent", recents[i], ImVec2(kEmojiRecentSize, kEmojiRecentSize)))
                 PickRaw(recents[i]);
+            recent_hits[i].min = ImGui::GetItemRectMin();
+            recent_hits[i].max = ImGui::GetItemRectMax();
+            std::strncpy(recent_hits[i].glyph, recents[i], sizeof(recent_hits[i].glyph) - 1);
+            recent_hits[i].glyph[sizeof(recent_hits[i].glyph) - 1] = '\0';
             ImGui::PopID();
         }
         ImGui::Separator();
@@ -432,8 +483,6 @@ void EmojiPop::Draw() {
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, spacing));
     char display_glyph[32];
-    char preview_glyph[32] = {};
-    const Emoji* hover = nullptr;
     for (int i = 0; i < result_count; ++i) {
         const Emoji& e = kEmojis[results[i]];
         BuildGlyph(e, tone, display_glyph, sizeof(display_glyph));
@@ -445,15 +494,21 @@ void EmojiPop::Draw() {
             ImGui::SetNavCursorVisible(true);
             focus_first_emoji = false;
         }
-        if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) {
-            hover = &e;
-            std::strncpy(preview_glyph, display_glyph, sizeof(preview_glyph) - 1);
-            preview_glyph[sizeof(preview_glyph) - 1] = '\0';
-        }
+        if (EmojiCellHovered())
+            SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
         ImGui::PopID();
     }
     ImGui::PopStyleVar();
     ImGui::EndChild();
+
+    if (!preview_glyph[0]) {
+        for (int i = 0; i < recent_count; ++i) {
+            if (!ImGui::IsMouseHoveringRect(recent_hits[i].min, recent_hits[i].max, false))
+                continue;
+            SetEmojiPreview(recent_hits[i].glyph, nullptr, preview_glyph, &hover);
+            break;
+        }
+    }
 
     ImGui::Separator();
     const float emoji_sz = kEmojiPreviewSize;
@@ -461,15 +516,17 @@ void EmojiPop::Draw() {
     const float preview_w = ImGui::GetContentRegionAvail().x;
     const ImVec2 bar_min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(preview_w, preview_h));
-    if (hover) {
+    if (preview_glyph[0]) {
         DrawEmojiImage(preview_glyph, bar_min, ImVec2(emoji_sz, emoji_sz));
         ImGui::SetCursorScreenPos(ImVec2(bar_min.x + emoji_sz + pad, bar_min.y + 8.f));
         if (g_font_ui) ImGui::PushFont(g_font_ui);
         ImGui::BeginGroup();
-        ImGui::TextUnformatted(hover->name);
-        char shortcode[128];
-        FormatShortcode(hover->name, shortcode, sizeof(shortcode));
-        ImGui::TextDisabled("%s", shortcode);
+        if (hover) {
+            ImGui::TextUnformatted(hover->name);
+            char shortcode[128];
+            FormatShortcode(hover->name, shortcode, sizeof(shortcode));
+            ImGui::TextDisabled("%s", shortcode);
+        }
         ImGui::EndGroup();
         if (g_font_ui) ImGui::PopFont();
     } else {
