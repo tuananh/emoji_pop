@@ -1,0 +1,81 @@
+name: Nightly Release
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            pkg-config \
+            libgl1-mesa-dev \
+            libfreetype6-dev \
+            libharfbuzz-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DEMOJI_POP_FONT_DIR=assets/fonts
+          cmake --build build -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/emoji_pop
+          cp build/emoji_pop dist/emoji_pop/
+          cp -r assets dist/emoji_pop/
+          cd dist
+          tar czf emoji_pop-nightly-linux-x86_64.tar.gz emoji_pop
+
+      - name: Update nightly tag
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          git tag -fa nightly -m "Nightly $(date -u +%Y-%m-%d)"
+          git push -f origin nightly
+
+      - name: Clear previous nightly assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_ids=$(gh release view nightly --json assets -q '.assets[].id' 2>/dev/null || true)
+          for id in $asset_ids; do
+            gh api -X DELETE "/repos/${{ github.repository }}/releases/assets/${id}"
+          done
+
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          body: |
+            Automated nightly build for Linux x86_64.
+
+            **Commit:** ${{ github.sha }}
+            **Built:** ${{ github.run_started_at }}
+
+            Extract the archive and run `./emoji_pop/emoji_pop` from the extracted directory.
+          files: dist/emoji_pop-nightly-linux-x86_64.tar.gz

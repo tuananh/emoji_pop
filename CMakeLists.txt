@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(emoji_pop CXX)
 
+set(EMOJI_POP_FONT_DIR "${CMAKE_SOURCE_DIR}/assets/fonts" CACHE STRING "Font directory path baked into the binary")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -44,7 +46,7 @@ add_executable(emoji_pop
 
 target_compile_definitions(emoji_pop PRIVATE
     IMGUI_USER_CONFIG="imconfig_user.h"
-    "EMOJI_POP_FONT_DIR=\"${CMAKE_SOURCE_DIR}/assets/fonts\""
+    "EMOJI_POP_FONT_DIR=\"${EMOJI_POP_FONT_DIR}\""
 )
 
 target_include_directories(emoji_pop PRIVATE
