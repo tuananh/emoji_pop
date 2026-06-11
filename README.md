@@ -2,6 +2,14 @@
 
 A Linux emoji picker that opens instantly.
 
+## Features
+
+- Fast. Like really fast. There's no reason for such small utility to be slow.
+- Skin tone.
+- Category filter.
+- Recently used emojis.
+- Light/Dark theme.
+
 <p align="center">
   <img src="assets/main_window.png" alt="Emoji Pop main window" />
 </p>
