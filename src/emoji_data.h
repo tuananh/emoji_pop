@@ -1948,7 +1948,7 @@ inline constexpr const char* kEmojiCategoryLabels[] = {
 };
 inline constexpr const char* kEmojiCategoryGlyphs[] = {
     "✨",
-    "⏰",
+    "🔄",
     "😀",
     "👋",
     "🌿",
