@@ -83,6 +83,7 @@ int main() {
 
     LoadFonts();
     EnsureToneIconsLoaded();
+    GetCachedEmojiTexture("🔍");
     for (int i = 0; i < pop.recent_count; ++i)
         GetCachedEmojiTexture(pop.recents[i]);
 

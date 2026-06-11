@@ -368,15 +368,30 @@ void EmojiPop::Draw() {
     const float arrow_w = frame_h;
     const float tone_w = 16.f + arrow_w + style.FramePadding.x * 2.f;
     const float gap = style.ItemSpacing.x;
+    const float icon_pad = style.FramePadding.x;
+    const float search_icon_sz = icon_sz_y;
+    const float search_icon_inset = search_icon_sz + icon_pad * 2.f;
     const float preview_h = kEmojiPreviewBarH;
 
     if (focus_search) {
         ImGui::SetKeyboardFocusHere();
         focus_search = false;
     }
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - tone_w - gap);
+    const float content_w = ImGui::GetContentRegionAvail().x;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+        ImVec2(search_icon_inset, style.FramePadding.y));
+    ImGui::SetNextItemWidth(content_w - tone_w - gap);
     ImGui::InputTextWithHint("##search", "Search emoji...", search, sizeof(search),
         ImGuiInputTextFlags_CallbackAlways, SearchInputCallback);
+    ImGui::PopStyleVar();
+    {
+        const ImVec2 rmin = ImGui::GetItemRectMin();
+        const ImVec2 rmax = ImGui::GetItemRectMax();
+        const float py = rmin.y + (rmax.y - rmin.y - search_icon_sz) * 0.5f;
+        DrawEmojiImage("🔍",
+            ImVec2(rmin.x + icon_pad, py),
+            ImVec2(search_icon_sz, search_icon_sz));
+    }
     if (std::strcmp(search, last_search) != 0) {
         std::strcpy(last_search, search);
         Filter();
@@ -391,7 +406,6 @@ void EmojiPop::Draw() {
     ImGui::SetNextItemWidth(tone_w);
     const float row_h = icon_sz_y + 4.f;
     const ImVec2 icon_sz(16.f, icon_sz_y);
-    const float icon_pad = style.FramePadding.x;
     if (ImGui::BeginCombo("##tone", " ")) {
         for (int t = 0; t < 6; ++t) {
             if (!g_tone_icons[t].tex) continue;
