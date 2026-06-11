@@ -171,7 +171,10 @@ int ScoreEmoji(const Emoji& e, const char* query) {
 }
 
 void BuildGlyph(const Emoji& e, int tone, char* out, size_t cap) {
-    std::snprintf(out, cap, "%s%s", e.glyph, (e.skin_tone && tone > 0) ? kToneMods[tone] : "");
+    if (!e.skin_tone || tone <= 0)
+        ApplySkinTone(e.glyph, 0, out, cap);
+    else
+        ApplySkinTone(e.glyph, tone, out, cap);
 }
 
 static int SearchInputCallback(ImGuiInputTextCallbackData* data) {
@@ -191,7 +194,7 @@ bool EmojiButton(const char* id, const char* glyph, const ImVec2& size) {
         ImGui::PopStyleVar();
         return pressed;
     }
-    char display[32];
+    char display[64];
     StripVs16(glyph, display, sizeof(display));
     return ImGui::Button(display, size);
 }
@@ -227,7 +230,7 @@ void DrawEmojiImage(const char* glyph, ImVec2 pos, ImVec2 size) {
             (ImTextureID)(intptr_t)icon.tex, pos, ImVec2(pos.x + size.x, pos.y + size.y));
         return;
     }
-    char display[32];
+    char display[64];
     StripVs16(glyph, display, sizeof(display));
     ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_Text), display);
 }
@@ -266,8 +269,8 @@ bool EmojiCellHovered() {
 }
 
 void SetEmojiPreview(const char* glyph, const Emoji* emoji, char* preview_glyph, const Emoji** hover) {
-    std::strncpy(preview_glyph, glyph, 31);
-    preview_glyph[31] = '\0';
+    std::strncpy(preview_glyph, glyph, sizeof(preview_glyph) - 1);
+    preview_glyph[sizeof(preview_glyph) - 1] = '\0';
     *hover = emoji ? emoji : FindEmojiByGlyph(glyph);
 }
 
@@ -472,7 +475,7 @@ void EmojiPop::Draw() {
 
     ImGui::Spacing();
     ImGui::Separator();
-    char preview_glyph[32] = {};
+    char preview_glyph[64] = {};
     const Emoji* hover = nullptr;
 
     ImGui::BeginChild("##grid", ImVec2(0, -(preview_h + style.ItemSpacing.y + 1.f)), false);
@@ -483,7 +486,7 @@ void EmojiPop::Draw() {
     const float cell_w = (avail_w - spacing * (cols - 1)) / cols;
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, spacing));
-    char display_glyph[32];
+    char display_glyph[64];
     for (int i = 0; i < result_count; ++i) {
         if (i % cols != 0) ImGui::SameLine();
         ImGui::PushID(i);

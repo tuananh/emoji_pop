@@ -74,6 +74,108 @@ void StripVs16(const char* in, char* out, size_t cap) {
     *d = '\0';
 }
 
+static const char* kToneMods[] = {
+    "",
+    "\xF0\x9F\x8F\xBB", // U+1F3FB
+    "\xF0\x9F\x8F\xBC", // U+1F3FC
+    "\xF0\x9F\x8F\xBD", // U+1F3FD
+    "\xF0\x9F\x8F\xBE", // U+1F3FE
+    "\xF0\x9F\x8F\xBF", // U+1F3FF
+};
+
+static bool IsFitzpatrick(uint32_t cp) {
+    return cp >= 0x1F3FB && cp <= 0x1F3FF;
+}
+
+static bool IsEmojiModifierBase(uint32_t cp) {
+    static const struct {
+        uint32_t start;
+        uint32_t end;
+    } kRanges[] = {
+        {0x261D, 0x261D}, {0x26F9, 0x26F9}, {0x270A, 0x270D},
+        {0x1F385, 0x1F385}, {0x1F3C3, 0x1F3C4}, {0x1F3CA, 0x1F3CA},
+        {0x1F442, 0x1F443}, {0x1F446, 0x1F450}, {0x1F466, 0x1F469},
+        {0x1F46E, 0x1F46E}, {0x1F470, 0x1F478}, {0x1F47C, 0x1F47C},
+        {0x1F481, 0x1F483}, {0x1F485, 0x1F487}, {0x1F48F, 0x1F48F}, {0x1F491, 0x1F491},
+        {0x1F4AA, 0x1F4AA}, {0x1F574, 0x1F575}, {0x1F57A, 0x1F57A}, {0x1F590, 0x1F590},
+        {0x1F595, 0x1F596}, {0x1F645, 0x1F647}, {0x1F64B, 0x1F64B}, {0x1F64D, 0x1F64E},
+        {0x1F6A3, 0x1F6A3}, {0x1F6B4, 0x1F6B6}, {0x1F6C0, 0x1F6C0},
+        {0x1F918, 0x1F91C}, {0x1F91E, 0x1F91E}, {0x1F926, 0x1F926}, {0x1F930, 0x1F939}, {0x1F93D, 0x1F93E},
+        {0x1F977, 0x1F977}, {0x1F9B5, 0x1F9B6}, {0x1F9D1, 0x1F9DD},
+        {0x1FAC3, 0x1FAC5}, {0x1FAF0, 0x1FAF8},
+    };
+    for (const auto& range : kRanges) {
+        if (cp >= range.start && cp <= range.end)
+            return true;
+    }
+    return false;
+}
+
+static bool AppendBytes(char* out, size_t cap, size_t* len, const char* bytes, size_t count) {
+    if (*len + count + 1 > cap)
+        return false;
+    std::memcpy(out + *len, bytes, count);
+    *len += count;
+    out[*len] = '\0';
+    return true;
+}
+
+void ApplySkinTone(const char* glyph, int tone, char* out, size_t cap) {
+    if (!out || cap == 0)
+        return;
+    if (!glyph) {
+        out[0] = '\0';
+        return;
+    }
+    if (tone <= 0 || tone > 5 || !kToneMods[tone][0]) {
+        std::snprintf(out, cap, "%s", glyph);
+        return;
+    }
+
+    const char* mod = kToneMods[tone];
+    size_t len = 0;
+    out[0] = '\0';
+
+    for (const uint8_t* p = (const uint8_t*)glyph; *p; ) {
+        const uint8_t* cluster_start = p;
+        uint32_t cp = 0;
+        p = Utf8Decode(p, &cp);
+        if (!cp)
+            break;
+
+        bool has_fitz = false;
+        while (*p) {
+            uint32_t next_cp = 0;
+            const uint8_t* next = Utf8Decode(p, &next_cp);
+            if (next_cp == 0xFE0F || IsFitzpatrick(next_cp)) {
+                if (IsFitzpatrick(next_cp))
+                    has_fitz = true;
+                p = next;
+                continue;
+            }
+            break;
+        }
+
+        if (!AppendBytes(out, cap, &len, (const char*)cluster_start, (size_t)(p - cluster_start)))
+            goto fallback;
+
+        uint32_t next_cp = 0;
+        if (*p)
+            Utf8Decode(p, &next_cp);
+        if (!has_fitz && IsEmojiModifierBase(cp) && (!next_cp || next_cp == 0x200D)) {
+            if (!AppendBytes(out, cap, &len, mod, std::strlen(mod)))
+                goto fallback;
+        }
+    }
+
+    if (len == 0)
+        goto fallback;
+    return;
+
+fallback:
+    std::snprintf(out, cap, "%s", glyph);
+}
+
 static void BlitGlyph(FT_GlyphSlot slot, int x, int y, std::vector<uint8_t>& out, int w, int h) {
     const FT_Bitmap& bmp = slot->bitmap;
     if (bmp.pixel_mode != FT_PIXEL_MODE_BGRA)
