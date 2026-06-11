@@ -22,6 +22,8 @@ $ cmake --build build
 
 Requires OpenGL, FreeType, and HarfBuzz.
 
+Or download the [nightly build here](https://github.com/tuananh/emoji_pop/releases/tag/nightly).
+
 ## Usage flow
 
 1. Bind a shortcut in your WM/DE (Super/Mod + . recommended).
