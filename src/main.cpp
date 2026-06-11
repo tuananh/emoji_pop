@@ -2,6 +2,7 @@
 #include "config.h"
 #include "fonts.h"
 #include "instance.h"
+#include "theme.h"
 #include "tone_icons.h"
 
 #include <imgui.h>
@@ -64,16 +65,10 @@ int main() {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    ImGui::StyleColorsDark();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
-
-    float content_scale_x = 1.f, content_scale_y = 1.f;
-    glfwGetWindowContentScale(window, &content_scale_x, &content_scale_y);
-    io.FontGlobalScale = content_scale_y;
-
     EmojiPop pop;
     pop.tone = LoadTonePreference();
+    pop.theme = LoadThemePreference();
+    ApplyTheme(pop.theme);
     LoadRecents(pop.recents, &pop.recent_count);
     pop.RequestFocusSearch();
     pop.on_pick = [window](const char* glyph) {
@@ -81,9 +76,18 @@ int main() {
         HideWindow(window);
     };
 
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
+    float content_scale_x = 1.f, content_scale_y = 1.f;
+    glfwGetWindowContentScale(window, &content_scale_x, &content_scale_y);
+    io.FontGlobalScale = content_scale_y;
+
     LoadFonts();
     EnsureToneIconsLoaded();
     GetCachedEmojiTexture("🔍");
+    GetCachedEmojiTexture("☀️");
+    GetCachedEmojiTexture("🌙");
     for (int i = 0; i < pop.recent_count; ++i)
         GetCachedEmojiTexture(pop.recents[i]);
 
@@ -115,7 +119,9 @@ int main() {
         int w, h;
         glfwGetFramebufferSize(window, &w, &h);
         glViewport(0, 0, w, h);
-        glClearColor(0.1f, 0.1f, 0.12f, 1.f);
+        float clear_color[4];
+        GetThemeClearColor(clear_color);
+        glClearColor(clear_color[0], clear_color[1], clear_color[2], clear_color[3]);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "emoji_data.h"
 #include "fonts.h"
+#include "theme.h"
 #include "tone_icons.h"
 
 #include <imgui.h>
@@ -228,7 +229,7 @@ void DrawEmojiImage(const char* glyph, ImVec2 pos, ImVec2 size) {
     }
     char display[32];
     StripVs16(glyph, display, sizeof(display));
-    ImGui::GetWindowDrawList()->AddText(pos, IM_COL32_WHITE, display);
+    ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_Text), display);
 }
 
 void StripSkinToneSuffix(char* glyph) {
@@ -366,6 +367,7 @@ void EmojiPop::Draw() {
     const float frame_h = ImGui::GetFrameHeight();
     const float icon_sz_y = 16.f;
     const float arrow_w = frame_h;
+    const float theme_btn = frame_h;
     const float tone_w = 16.f + arrow_w + style.FramePadding.x * 2.f;
     const float gap = style.ItemSpacing.x;
     const float icon_pad = style.FramePadding.x;
@@ -380,7 +382,7 @@ void EmojiPop::Draw() {
     const float content_w = ImGui::GetContentRegionAvail().x;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
         ImVec2(search_icon_inset, style.FramePadding.y));
-    ImGui::SetNextItemWidth(content_w - tone_w - gap);
+    ImGui::SetNextItemWidth(content_w - tone_w - theme_btn - gap * 2.f);
     ImGui::InputTextWithHint("##search", "Search emoji...", search, sizeof(search),
         ImGuiInputTextFlags_CallbackAlways, SearchInputCallback);
     ImGui::PopStyleVar();
@@ -401,6 +403,16 @@ void EmojiPop::Draw() {
         ImGui::NavMoveRequestCancel();
         focus_first_emoji = true;
     }
+
+    ImGui::SameLine();
+    const char* theme_glyph = theme == kThemeDark ? "☀️" : "🌙";
+    if (EmojiButton("##theme", theme_glyph, ImVec2(theme_btn, frame_h))) {
+        theme = theme == kThemeDark ? kThemeLight : kThemeDark;
+        ApplyTheme(theme);
+        SaveThemePreference(theme);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(theme == kThemeDark ? "Light theme" : "Dark theme");
 
     ImGui::SameLine();
     ImGui::SetNextItemWidth(tone_w);

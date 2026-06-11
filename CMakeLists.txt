@@ -32,6 +32,7 @@ add_executable(emoji_pop
     src/main.cpp
     src/instance.cpp
     src/config.cpp
+    src/theme.cpp
     src/fonts.cpp
     src/tone_icons.cpp
     src/emoji_pop.cpp

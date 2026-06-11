@@ -11,6 +11,7 @@ struct EmojiPop {
     char search[128] = {};
     int category = 0;
     int tone = 0;
+    int theme = kThemeDark;
     int recent_count = 0;
     char recents[kMaxRecents][kRecentGlyphSize] = {};
     uint16_t results[2048] = {};
