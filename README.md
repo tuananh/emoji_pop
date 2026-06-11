@@ -9,8 +9,7 @@ A Linux emoji picker that opens instantly.
 ## Build
 
 ```bash
-cmake -B build
-cmake --build build
+$ cmake --build build
 ```
 
 Requires OpenGL, FreeType, and HarfBuzz.
