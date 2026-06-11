@@ -9,10 +9,11 @@ struct Emoji;
 
 struct EmojiPop {
     char search[128] = {};
+    int category = 0;
     int tone = 0;
     int recent_count = 0;
     char recents[kMaxRecents][kRecentGlyphSize] = {};
-    uint16_t results[1024] = {};
+    uint16_t results[2048] = {};
     int result_count = 0;
     bool initialized = false;
     char last_search[128] = {};

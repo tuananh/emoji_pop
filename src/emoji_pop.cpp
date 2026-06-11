@@ -273,17 +273,31 @@ void SetEmojiPreview(const char* glyph, const Emoji* emoji, char* preview_glyph,
 } // namespace
 
 void EmojiPop::Filter() {
+    char normalized[128];
+    NormalizeSearch(search, normalized, sizeof(normalized));
+
+    if (category == kEmojiCategoryRecent) {
+        result_count = 0;
+        for (int i = 0; i < recent_count; ++i) {
+            const Emoji* e = FindEmojiByGlyph(recents[i]);
+            if (normalized[0] && (!e || ScoreEmoji(*e, normalized) <= 0))
+                continue;
+            results[result_count++] = (uint16_t)i;
+        }
+        return;
+    }
+
     struct ScoredResult {
         uint16_t index;
         int score;
     };
 
-    char normalized[128];
-    NormalizeSearch(search, normalized, sizeof(normalized));
-
-    ScoredResult scored[1024];
+    ScoredResult scored[2048];
     int count = 0;
     for (int i = 0; i < kEmojiCount; ++i) {
+        if (category >= kEmojiCategoryContentBase &&
+            kEmojiCategoryMap[i] != category - kEmojiCategoryContentBase)
+            continue;
         const int score = ScoreEmoji(kEmojis[i], normalized);
         if (score <= 0)
             continue;
@@ -408,30 +422,32 @@ void EmojiPop::Draw() {
             ImVec2(rmin.x + icon_pad + icon_sz.x, py + icon_sz.y));
     }
 
+    const float category_btn = kEmojiChipSize;
+    ImGui::BeginChild("##categories", ImVec2(0, category_btn), false,
+        ImGuiWindowFlags_HorizontalScrollbar);
+    for (int c = 0; c < kEmojiCategoryCount; ++c) {
+        if (c > 0) ImGui::SameLine();
+        ImGui::PushID(c);
+        const bool selected = category == c;
+        if (selected)
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (EmojiButton("##cat", kEmojiCategoryGlyphs[c], ImVec2(category_btn, category_btn)) &&
+            category != c) {
+            category = c;
+            Filter();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", kEmojiCategoryLabels[c]);
+        if (selected)
+            ImGui::PopStyleColor();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
     ImGui::Spacing();
     ImGui::Separator();
     char preview_glyph[32] = {};
     const Emoji* hover = nullptr;
-    struct RecentHit {
-        ImVec2 min;
-        ImVec2 max;
-        char glyph[kRecentGlyphSize];
-    };
-    RecentHit recent_hits[kMaxRecents] = {};
-    if (recent_count > 0) {
-        for (int i = 0; i < recent_count; ++i) {
-            if (i > 0) ImGui::SameLine();
-            ImGui::PushID(i);
-            if (EmojiButton("##recent", recents[i], ImVec2(kEmojiRecentSize, kEmojiRecentSize)))
-                PickRaw(recents[i]);
-            recent_hits[i].min = ImGui::GetItemRectMin();
-            recent_hits[i].max = ImGui::GetItemRectMax();
-            std::strncpy(recent_hits[i].glyph, recents[i], sizeof(recent_hits[i].glyph) - 1);
-            recent_hits[i].glyph[sizeof(recent_hits[i].glyph) - 1] = '\0';
-            ImGui::PopID();
-        }
-        ImGui::Separator();
-    }
 
     ImGui::BeginChild("##grid", ImVec2(0, -(preview_h + style.ItemSpacing.y + 1.f)), false);
     const float spacing = style.ItemSpacing.x;
@@ -443,31 +459,36 @@ void EmojiPop::Draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, spacing));
     char display_glyph[32];
     for (int i = 0; i < result_count; ++i) {
-        const Emoji& e = kEmojis[results[i]];
-        BuildGlyph(e, tone, display_glyph, sizeof(display_glyph));
         if (i % cols != 0) ImGui::SameLine();
         ImGui::PushID(i);
-        if (EmojiButton("##em", display_glyph, ImVec2(cell_w, cell_h))) Pick(e);
-        if (focus_first_emoji && i == 0) {
-            ImGui::FocusItem();
-            ImGui::SetNavCursorVisible(true);
-            focus_first_emoji = false;
+        if (category == kEmojiCategoryRecent) {
+            const char* glyph = recents[results[i]];
+            if (EmojiButton("##em", glyph, ImVec2(cell_w, cell_h)))
+                PickRaw(glyph);
+            if (focus_first_emoji && i == 0) {
+                ImGui::FocusItem();
+                ImGui::SetNavCursorVisible(true);
+                focus_first_emoji = false;
+            }
+            if (EmojiCellHovered())
+                SetEmojiPreview(glyph, FindEmojiByGlyph(glyph), preview_glyph, &hover);
+        } else {
+            const Emoji& e = kEmojis[results[i]];
+            BuildGlyph(e, tone, display_glyph, sizeof(display_glyph));
+            if (EmojiButton("##em", display_glyph, ImVec2(cell_w, cell_h)))
+                Pick(e);
+            if (focus_first_emoji && i == 0) {
+                ImGui::FocusItem();
+                ImGui::SetNavCursorVisible(true);
+                focus_first_emoji = false;
+            }
+            if (EmojiCellHovered())
+                SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
         }
-        if (EmojiCellHovered())
-            SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
         ImGui::PopID();
     }
     ImGui::PopStyleVar();
     ImGui::EndChild();
-
-    if (!preview_glyph[0]) {
-        for (int i = 0; i < recent_count; ++i) {
-            if (!ImGui::IsMouseHoveringRect(recent_hits[i].min, recent_hits[i].max, false))
-                continue;
-            SetEmojiPreview(recent_hits[i].glyph, nullptr, preview_glyph, &hover);
-            break;
-        }
-    }
 
     ImGui::Separator();
     const float emoji_sz = kEmojiPreviewSize;

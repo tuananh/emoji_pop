@@ -113,13 +113,17 @@ static bool EnsureEmojiFace() {
         return true;
     if (!g_ft && FT_Init_FreeType(&g_ft))
         return false;
-    if (FT_New_Face(g_ft, kNotoColorEmoji, 0, &g_emoji_face))
+    if (FT_New_Face(g_ft, kTwemojiFont, 0, &g_emoji_face))
         return false;
 
-    FT_Size_RequestRec req{};
-    req.type = FT_SIZE_REQUEST_TYPE_NOMINAL;
-    req.height = kRasterPx * 64;
-    FT_Request_Size(g_emoji_face, &req);
+    if (g_emoji_face->num_fixed_sizes > 0) {
+        FT_Select_Size(g_emoji_face, 0);
+    } else {
+        FT_Size_RequestRec req{};
+        req.type = FT_SIZE_REQUEST_TYPE_NOMINAL;
+        req.height = kRasterPx * 64;
+        FT_Request_Size(g_emoji_face, &req);
+    }
     g_hb_font = hb_ft_font_create(g_emoji_face, nullptr);
     return g_hb_font != nullptr;
 }

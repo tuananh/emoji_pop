@@ -8,7 +8,7 @@ inline constexpr int kEmojiNativePx = 109;
 inline constexpr int kToneIconCachePx = 64;
 
 inline constexpr float kEmojiCellSize = 32.f;
-inline constexpr float kEmojiRecentSize = 38.f;
+inline constexpr float kEmojiChipSize = 38.f;
 inline constexpr float kEmojiPreviewSize = 64.f;
 inline constexpr float kEmojiPreviewBarH = 80.f;
 
