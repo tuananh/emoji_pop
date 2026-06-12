@@ -336,6 +336,7 @@ void EmojiPop::PickRaw(const char* glyph) {
                 std::strcpy(recents[j], recents[j - 1]);
             std::strcpy(recents[0], glyph);
             SaveRecents(tone, recents, recent_count);
+            ImGui::CloseCurrentPopup();
             if (on_pick) on_pick(glyph);
             return;
         }
@@ -345,22 +346,36 @@ void EmojiPop::PickRaw(const char* glyph) {
         std::strcpy(recents[j], recents[j - 1]);
     std::strcpy(recents[0], glyph);
     SaveRecents(tone, recents, recent_count);
+    ImGui::CloseCurrentPopup();
     if (on_pick) on_pick(glyph);
 }
 
-void EmojiPop::Draw() {
+bool EmojiPop::Draw() {
     if (!initialized) {
         Filter();
         initialized = true;
     }
 
+    if (open_requested) {
+        ImGui::OpenPopup("Emoji Pop");
+        open_requested = false;
+    }
+
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::Begin("Emoji Pop", nullptr,
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::SetNextWindowPos(vp->WorkPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(vp->WorkSize, ImGuiCond_Always);
+    if (!ImGui::BeginPopupModal("Emoji Pop", nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+        return false;
+
+    if (ImGui::Shortcut(ImGuiKey_Escape,
+            ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused |
+            ImGuiInputFlags_RouteOverActive)) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return false;
+    }
 
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F,
             ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused | ImGuiInputFlags_RouteOverActive))
@@ -546,5 +561,6 @@ void EmojiPop::Draw() {
         if (g_font_ui) ImGui::PopFont();
     }
 
-    ImGui::End();
+    ImGui::EndPopup();
+    return true;
 }

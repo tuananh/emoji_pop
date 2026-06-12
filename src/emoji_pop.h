@@ -20,10 +20,12 @@ struct EmojiPop {
     char last_search[128] = {};
     bool focus_search = false;
     bool focus_first_emoji = false;
+    bool open_requested = false;
 
     std::function<void(const char*)> on_pick;
 
-    void Draw();
+    bool Draw();
+    void RequestOpen() { open_requested = true; }
     void RequestFocusSearch() { focus_search = true; }
     void Pick(const Emoji& e);
     void PickRaw(const char* glyph);

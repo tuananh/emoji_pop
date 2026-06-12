@@ -17,18 +17,24 @@ static void glfw_error(int, const char* desc) {
     std::fprintf(stderr, "GLFW: %s\n", desc);
 }
 
-static void ShowWindow(GLFWwindow* window) {
+static void CenterWindow(GLFWwindow* window) {
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    int win_w = 0, win_h = 0;
+    glfwGetWindowSize(window, &win_w, &win_h);
+    glfwSetWindowPos(window, (mode->width - win_w) / 2, (mode->height - win_h) / 2);
+}
+
+static void ShowWindow(GLFWwindow* window, EmojiPop& pop) {
+    CenterWindow(window);
     glfwShowWindow(window);
     glfwFocusWindow(window);
+    pop.RequestOpen();
+    pop.RequestFocusSearch();
 }
 
 static void HideWindow(GLFWwindow* window) {
     glfwHideWindow(window);
-}
-
-static void KeyCallback(GLFWwindow* window, int key, int, int action, int) {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        HideWindow(window);
 }
 
 int main() {
@@ -49,8 +55,10 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(640, 480, "Emoji Pop", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(kPopupWidth, kPopupHeight, "Emoji Pop", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         ReleaseInstance();
@@ -58,7 +66,6 @@ int main() {
     }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
-    glfwSetKeyCallback(window, KeyCallback);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -70,7 +77,6 @@ int main() {
     pop.theme = LoadThemePreference();
     ApplyTheme(pop.theme);
     LoadRecents(pop.recents, &pop.recent_count);
-    pop.RequestFocusSearch();
     pop.on_pick = [window](const char* glyph) {
         std::printf("picked: %s\n", glyph);
         HideWindow(window);
@@ -91,21 +97,16 @@ int main() {
     for (int i = 0; i < pop.recent_count; ++i)
         GetCachedEmojiTexture(pop.recents[i]);
 
-    ShowWindow(window);
+    ShowWindow(window, pop);
 
-    bool prev_visible = false;
     while (!glfwWindowShouldClose(window)) {
-        PollInstanceServer([window]() { ShowWindow(window); });
+        PollInstanceServer([&]() { ShowWindow(window, pop); });
 
         const bool visible = glfwGetWindowAttrib(window, GLFW_VISIBLE) != GLFW_FALSE;
         if (!visible) {
-            prev_visible = false;
             glfwWaitEventsTimeout(0.05);
             continue;
         }
-        if (!prev_visible)
-            pop.RequestFocusSearch();
-        prev_visible = true;
 
         glfwPollEvents();
 
@@ -113,7 +114,8 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        pop.Draw();
+        if (!pop.Draw())
+            HideWindow(window);
 
         ImGui::Render();
         int w, h;
