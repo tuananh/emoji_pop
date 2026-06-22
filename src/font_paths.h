@@ -5,3 +5,4 @@
 #endif
 
 inline constexpr const char kTwemojiFont[] = EMOJI_POP_FONT_DIR "/TwitterColorEmoji-SVGinOT.ttf";
+inline constexpr const char kTwemojiFallbackFont[] = EMOJI_POP_FONT_DIR "/Twemoji-17.0.2.ttf";

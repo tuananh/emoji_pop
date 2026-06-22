@@ -195,52 +195,180 @@ static void BlitGlyph(FT_GlyphSlot slot, int x, int y, std::vector<uint8_t>& out
     }
 }
 
-static FT_Library g_ft = nullptr;
-static FT_Face g_emoji_face = nullptr;
-static hb_font_t* g_hb_font = nullptr;
-static int g_emoji_pixel_size = 0;
+struct EmojiFont {
+    FT_Face face = nullptr;
+    hb_font_t* hb = nullptr;
+    int pixel_size = 0;
+    bool size_set = false;
+};
 
-static bool EnsureEmojiFace() {
-    if (!g_ft) {
-        if (FT_Init_FreeType(&g_ft))
-            return false;
-        if (FT_Property_Set(g_ft, "ot-svg", "svg-hooks", &plutosvg_ft_hooks)) {
-            std::fprintf(stderr, "emoji: failed to set SVG renderer hooks\n");
-            return false;
-        }
-    }
-    if (!g_emoji_face && FT_New_Face(g_ft, kTwemojiFont, 0, &g_emoji_face))
+static FT_Library g_ft = nullptr;
+static EmojiFont g_svg_font;
+static EmojiFont g_fallback_font;
+
+static bool EnsureFreetype() {
+    if (g_ft)
+        return true;
+    if (FT_Init_FreeType(&g_ft))
         return false;
-    if (!g_hb_font)
-        g_hb_font = hb_ft_font_create(g_emoji_face, nullptr);
-    return g_hb_font != nullptr;
+    if (FT_Property_Set(g_ft, "ot-svg", "svg-hooks", &plutosvg_ft_hooks)) {
+        std::fprintf(stderr, "emoji: failed to set SVG renderer hooks\n");
+        return false;
+    }
+    return true;
 }
 
-static bool SetEmojiPixelSize(int px) {
-    if (!EnsureEmojiFace())
+static bool EnsureEmojiFont(EmojiFont& font, const char* path) {
+    if (!EnsureFreetype())
         return false;
-    if (g_emoji_pixel_size == px)
+    if (!font.face && FT_New_Face(g_ft, path, 0, &font.face))
+        return false;
+    if (!font.hb)
+        font.hb = hb_ft_font_create(font.face, nullptr);
+    return font.hb != nullptr;
+}
+
+static bool SetEmojiFontSize(EmojiFont& font, int px) {
+    if (!font.face)
+        return false;
+    if (font.face->num_fixed_sizes > 0) {
+        if (font.size_set)
+            return true;
+        if (FT_Select_Size(font.face, 0))
+            return false;
+        hb_ft_font_changed(font.hb);
+        font.size_set = true;
+        return true;
+    }
+    if (font.size_set && font.pixel_size == px)
         return true;
     FT_Size_RequestRec req{};
     req.type = FT_SIZE_REQUEST_TYPE_NOMINAL;
     req.height = px * 64;
-    if (FT_Request_Size(g_emoji_face, &req))
+    if (FT_Request_Size(font.face, &req))
         return false;
-    hb_ft_font_changed(g_hb_font);
-    g_emoji_pixel_size = px;
+    hb_ft_font_changed(font.hb);
+    font.pixel_size = px;
+    font.size_set = true;
     return true;
 }
 
-static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, int& out_h, int target_px) {
-    const int px = target_px > 0 ? target_px : kRasterPx;
-    if (!SetEmojiPixelSize(px))
+static bool TryKeycapGlyphId(FT_Face face, const char* utf8, unsigned* out_gid) {
+    if (!utf8 || !out_gid)
         return false;
 
-    FT_Face face = g_emoji_face;
+    const uint8_t* p = (const uint8_t*)utf8;
+    uint32_t base_cp = 0;
+    p = Utf8Decode(p, &base_cp);
+    const bool valid_base =
+        (base_cp >= '0' && base_cp <= '9') || base_cp == '#' || base_cp == '*';
+    if (!valid_base)
+        return false;
+
+    uint32_t cp = 0;
+    if (*p) {
+        p = Utf8Decode(p, &cp);
+        if (cp == 0xFE0F && *p)
+            p = Utf8Decode(p, &cp);
+    }
+    if (cp != 0x20E3 || *p)
+        return false;
+
+    char name[16];
+    std::snprintf(name, sizeof(name), "%x-20e3", base_cp);
+
+    if (!face)
+        return false;
+    const unsigned gid = FT_Get_Name_Index(face, name);
+    if (!gid)
+        return false;
+
+    char actual[64];
+    if (FT_Get_Glyph_Name(face, gid, actual, sizeof(actual)))
+        return false;
+    if (std::strcmp(actual, name) != 0)
+        return false;
+
+    *out_gid = gid;
+    return true;
+}
+
+static bool RasterizeGlyphRun(FT_Face face, const unsigned* gids, unsigned count,
+                              const hb_glyph_position_t* pos, std::vector<uint8_t>& out,
+                              int& out_w, int& out_h) {
+    if (!count)
+        return false;
+
+    int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+    int pen_x = 0, pen_y = 0;
+    bool first = true;
+    for (unsigned i = 0; i < count; ++i) {
+        if (FT_Load_Glyph(face, gids[i], FT_LOAD_COLOR))
+            continue;
+        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL))
+            continue;
+        const int x = pen_x + ((pos ? pos[i].x_offset : 0) >> 6) + (int)face->glyph->bitmap_left;
+        const int y = pen_y - ((pos ? pos[i].y_offset : 0) >> 6) - (int)face->glyph->bitmap_top;
+        const int rw = (int)face->glyph->bitmap.width;
+        const int rh = (int)face->glyph->bitmap.rows;
+        if (!rw || !rh)
+            continue;
+        if (first) {
+            min_x = x;
+            min_y = y;
+            max_x = x + rw;
+            max_y = y + rh;
+            first = false;
+        } else {
+            min_x = std::min(min_x, x);
+            min_y = std::min(min_y, y);
+            max_x = std::max(max_x, x + rw);
+            max_y = std::max(max_y, y + rh);
+        }
+        pen_x += (pos ? pos[i].x_advance : 0) >> 6;
+        pen_y += (pos ? pos[i].y_advance : 0) >> 6;
+    }
+    if (first)
+        return false;
+
+    const int pad = 2;
+    out_w = std::max(1, max_x - min_x + pad * 2);
+    out_h = std::max(1, max_y - min_y + pad * 2);
+    out.assign(out_w * out_h * 4, 0);
+
+    pen_x = pen_y = 0;
+    bool any_pixel = false;
+    for (unsigned i = 0; i < count; ++i) {
+        if (FT_Load_Glyph(face, gids[i], FT_LOAD_COLOR))
+            continue;
+        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL))
+            continue;
+        const int x = pen_x + ((pos ? pos[i].x_offset : 0) >> 6) + (int)face->glyph->bitmap_left - min_x + pad;
+        const int y = pen_y - ((pos ? pos[i].y_offset : 0) >> 6) - (int)face->glyph->bitmap_top - min_y + pad;
+        if (face->glyph->bitmap.buffer)
+            any_pixel = true;
+        BlitGlyph(face->glyph, x, y, out, out_w, out_h);
+        pen_x += (pos ? pos[i].x_advance : 0) >> 6;
+        pen_y += (pos ? pos[i].y_advance : 0) >> 6;
+    }
+    return any_pixel;
+}
+
+static bool RasterizeWithFont(EmojiFont& font, const char* utf8, std::vector<uint8_t>& out,
+                              int& out_w, int& out_h, int px, bool try_keycap) {
+    if (!SetEmojiFontSize(font, px))
+        return false;
+
+    FT_Face face = font.face;
+
+    unsigned keycap_gid = 0;
+    if (try_keycap && TryKeycapGlyphId(face, utf8, &keycap_gid))
+        return RasterizeGlyphRun(face, &keycap_gid, 1, nullptr, out, out_w, out_h);
+
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8(buf, utf8, -1, 0, -1);
     hb_buffer_guess_segment_properties(buf);
-    hb_shape(g_hb_font, buf, nullptr, 0);
+    hb_shape(font.hb, buf, nullptr, 0);
 
     unsigned count = 0;
     hb_glyph_info_t* info = hb_buffer_get_glyph_infos(buf, &count);
@@ -250,49 +378,27 @@ static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, i
         return false;
     }
 
-    int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
-    int pen_x = 0, pen_y = 0;
-    bool first = true;
-    for (unsigned i = 0; i < count; ++i) {
-        if (FT_Load_Glyph(face, info[i].codepoint, FT_LOAD_COLOR))
-            continue;
-        const int x = pen_x + (pos[i].x_offset >> 6) + (int)face->glyph->bitmap_left;
-        const int y = pen_y - (pos[i].y_offset >> 6) - (int)face->glyph->bitmap_top;
-        const int rw = (int)face->glyph->bitmap.width;
-        const int rh = (int)face->glyph->bitmap.rows;
-        if (first) {
-            min_x = x; min_y = y; max_x = x + rw; max_y = y + rh;
-            first = false;
-        } else {
-            min_x = std::min(min_x, x);
-            min_y = std::min(min_y, y);
-            max_x = std::max(max_x, x + rw);
-            max_y = std::max(max_y, y + rh);
-        }
-        pen_x += pos[i].x_advance >> 6;
-        pen_y += pos[i].y_advance >> 6;
-    }
+    std::vector<unsigned> gids(count);
+    for (unsigned i = 0; i < count; ++i)
+        gids[i] = info[i].codepoint;
 
-    const int pad = 2;
-    out_w = std::max(1, max_x - min_x + pad * 2);
-    out_h = std::max(1, max_y - min_y + pad * 2);
-    out.assign(out_w * out_h * 4, 0);
-
-    pen_x = pen_y = 0;
-    for (unsigned i = 0; i < count; ++i) {
-        if (FT_Load_Glyph(face, info[i].codepoint, FT_LOAD_COLOR))
-            continue;
-        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL))
-            continue;
-        const int x = pen_x + (pos[i].x_offset >> 6) + (int)face->glyph->bitmap_left - min_x + pad;
-        const int y = pen_y - (pos[i].y_offset >> 6) - (int)face->glyph->bitmap_top - min_y + pad;
-        BlitGlyph(face->glyph, x, y, out, out_w, out_h);
-        pen_x += pos[i].x_advance >> 6;
-        pen_y += pos[i].y_advance >> 6;
-    }
-
+    const bool ok = RasterizeGlyphRun(face, gids.data(), count, pos, out, out_w, out_h);
     hb_buffer_destroy(buf);
-    return true;
+    return ok;
+}
+
+static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, int& out_h, int target_px) {
+    const int px = target_px > 0 ? target_px : kRasterPx;
+
+    if (EnsureEmojiFont(g_svg_font, kTwemojiFont) &&
+        RasterizeWithFont(g_svg_font, utf8, out, out_w, out_h, px, true))
+        return true;
+
+    if (EnsureEmojiFont(g_fallback_font, kTwemojiFallbackFont) &&
+        RasterizeWithFont(g_fallback_font, utf8, out, out_w, out_h, px, false))
+        return true;
+
+    return false;
 }
 
 static uint8_t SampleBilinear(const std::vector<uint8_t>& px, int w, int h, float fx, float fy, int ch) {
@@ -381,15 +487,20 @@ void DestroyEmojiTextures() {
     if (!ids.empty())
         glDeleteTextures((int)ids.size(), ids.data());
 
-    if (g_hb_font) {
-        hb_font_destroy(g_hb_font);
-        g_hb_font = nullptr;
-    }
-    if (g_emoji_face) {
-        FT_Done_Face(g_emoji_face);
-        g_emoji_face = nullptr;
-    }
-    g_emoji_pixel_size = 0;
+    auto destroy_font = [](EmojiFont& font) {
+        if (font.hb) {
+            hb_font_destroy(font.hb);
+            font.hb = nullptr;
+        }
+        if (font.face) {
+            FT_Done_Face(font.face);
+            font.face = nullptr;
+        }
+        font.pixel_size = 0;
+        font.size_set = false;
+    };
+    destroy_font(g_svg_font);
+    destroy_font(g_fallback_font);
     if (g_ft) {
         FT_Done_FreeType(g_ft);
         g_ft = nullptr;
