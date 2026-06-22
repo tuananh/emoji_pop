@@ -185,8 +185,11 @@ static int SearchInputCallback(ImGuiInputTextCallbackData* data) {
     return 0;
 }
 
+static const char* kToneHand = "\xF0\x9F\x91\x8D";
+
 bool EmojiButton(const char* id, const char* glyph, const ImVec2& size) {
-    const ToneIcon& icon = GetCachedEmojiTexture(glyph);
+    const int target_px = (int)std::max(1.f, std::min(size.x, size.y) - 4.f);
+    const ToneIcon& icon = GetCachedEmojiTexture(glyph, target_px);
     if (icon.tex) {
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.f, 2.f));
         const ImVec2 img(size.x - 4.f, size.y - 4.f);
@@ -224,7 +227,8 @@ void FormatShortcode(const char* name, char* out, size_t cap) {
 }
 
 void DrawEmojiImage(const char* glyph, ImVec2 pos, ImVec2 size) {
-    const ToneIcon& icon = GetCachedEmojiTexture(glyph);
+    const int target_px = (int)std::max(1.f, std::min(size.x, size.y));
+    const ToneIcon& icon = GetCachedEmojiTexture(glyph, target_px);
     if (icon.tex) {
         ImGui::GetWindowDrawList()->AddImage(
             (ImTextureID)(intptr_t)icon.tex, pos, ImVec2(pos.x + size.x, pos.y + size.y));
@@ -438,32 +442,33 @@ bool EmojiPop::Draw() {
     const ImVec2 icon_sz(16.f, icon_sz_y);
     if (ImGui::BeginCombo("##tone", " ")) {
         for (int t = 0; t < 6; ++t) {
-            if (!g_tone_icons[t].tex) continue;
             ImGui::PushID(t);
             const bool selected = tone == t;
             if (ImGui::Selectable("##tone_row", selected, 0, ImVec2(tone_w, row_h)) && tone != t) {
                 tone = t;
                 SaveTonePreference(tone);
             }
+            char tone_glyph[32];
+            ApplySkinTone(kToneHand, t, tone_glyph, sizeof(tone_glyph));
             const ImVec2 rmin = ImGui::GetItemRectMin();
-            ImGui::GetWindowDrawList()->AddImage(
-                (ImTextureID)(intptr_t)g_tone_icons[t].tex,
+            DrawEmojiImage(tone_glyph,
                 ImVec2(rmin.x + icon_pad, rmin.y + (row_h - icon_sz.y) * 0.5f),
-                ImVec2(rmin.x + icon_pad + icon_sz.x, rmin.y + (row_h - icon_sz.y) * 0.5f + icon_sz.y));
+                icon_sz);
             if (selected)
                 ImGui::SetItemDefaultFocus();
             ImGui::PopID();
         }
         ImGui::EndCombo();
     }
-    if (g_tone_icons[tone].tex) {
+    {
+        char tone_glyph[32];
+        ApplySkinTone(kToneHand, tone, tone_glyph, sizeof(tone_glyph));
         const ImVec2 rmin = ImGui::GetItemRectMin();
         const ImVec2 rmax = ImGui::GetItemRectMax();
         const float py = rmin.y + (rmax.y - rmin.y - icon_sz.y) * 0.5f;
-        ImGui::GetWindowDrawList()->AddImage(
-            (ImTextureID)(intptr_t)g_tone_icons[tone].tex,
+        DrawEmojiImage(tone_glyph,
             ImVec2(rmin.x + icon_pad, py),
-            ImVec2(rmin.x + icon_pad + icon_sz.x, py + icon_sz.y));
+            icon_sz);
     }
 
     const float category_btn = kEmojiChipSize;

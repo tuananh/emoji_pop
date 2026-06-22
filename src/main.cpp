@@ -90,12 +90,6 @@ int main() {
     io.FontGlobalScale = content_scale_y;
 
     LoadFonts();
-    EnsureToneIconsLoaded();
-    GetCachedEmojiTexture("🔍");
-    GetCachedEmojiTexture("☀️");
-    GetCachedEmojiTexture("🌙");
-    for (int i = 0; i < pop.recent_count; ++i)
-        GetCachedEmojiTexture(pop.recents[i]);
 
     ShowWindow(window, pop);
 
@@ -129,7 +123,7 @@ int main() {
         glfwSwapBuffers(window);
     }
 
-    DestroyToneIcons();
+    DestroyEmojiTextures();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

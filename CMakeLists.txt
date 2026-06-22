@@ -23,6 +23,15 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(imgui glfw)
 
+FetchContent_Declare(plutosvg
+    GIT_REPOSITORY https://github.com/sammycage/plutosvg.git
+    GIT_TAG v0.0.8
+    GIT_SUBMODULES "plutovg"
+)
+set(PLUTOSVG_ENABLE_FREETYPE ON CACHE BOOL "" FORCE)
+set(PLUTOSVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(plutosvg)
+
 find_package(OpenGL REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -57,4 +66,4 @@ target_include_directories(emoji_pop PRIVATE
     ${imgui_SOURCE_DIR}/misc/freetype
 )
 
-target_link_libraries(emoji_pop PRIVATE glfw OpenGL::GL Freetype::Freetype PkgConfig::HARFBUZZ)
+target_link_libraries(emoji_pop PRIVATE glfw OpenGL::GL Freetype::Freetype PkgConfig::HARFBUZZ plutosvg::plutosvg)

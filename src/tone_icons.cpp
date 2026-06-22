@@ -4,6 +4,9 @@
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_MODULE_H
+#include FT_OTSVG_H
+#include <plutosvg-ft.h>
 #include <hb.h>
 #include <hb-ft.h>
 
@@ -15,18 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-ToneIcon g_tone_icons[6] = {};
-
 static const int kRasterPx = kEmojiNativePx;
-
-static const char* kToneUtf8[] = {
-    "\xF0\x9F\x91\x8D",
-    "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBB",
-    "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBC",
-    "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD",
-    "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBE",
-    "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBF",
-};
 
 static std::unordered_map<std::string, ToneIcon> g_emoji_cache;
 static ToneIcon g_empty_icon = {};
@@ -47,15 +39,13 @@ static const uint8_t* Utf8Decode(const uint8_t* s, uint32_t* cp) {
 }
 
 bool NeedsShapedDisplay(const char* glyph) {
-    int count = 0;
     for (const uint8_t* p = (const uint8_t*)glyph; *p; ) {
         uint32_t cp;
         p = Utf8Decode(p, &cp);
-        if (cp == 0xFE0F) continue;
-        if (cp == 0x200D) return true;
-        ++count;
+        if (cp == 0x200D)
+            return true;
     }
-    return count > 1;
+    return false;
 }
 
 void StripVs16(const char* in, char* out, size_t cap) {
@@ -178,7 +168,7 @@ fallback:
 
 static void BlitGlyph(FT_GlyphSlot slot, int x, int y, std::vector<uint8_t>& out, int w, int h) {
     const FT_Bitmap& bmp = slot->bitmap;
-    if (bmp.pixel_mode != FT_PIXEL_MODE_BGRA)
+    if (!bmp.buffer || bmp.pixel_mode != FT_PIXEL_MODE_BGRA)
         return;
     for (unsigned int row = 0; row < bmp.rows; ++row) {
         for (unsigned int col = 0; col < bmp.width; ++col) {
@@ -208,30 +198,42 @@ static void BlitGlyph(FT_GlyphSlot slot, int x, int y, std::vector<uint8_t>& out
 static FT_Library g_ft = nullptr;
 static FT_Face g_emoji_face = nullptr;
 static hb_font_t* g_hb_font = nullptr;
-static bool g_tone_icons_loaded = false;
+static int g_emoji_pixel_size = 0;
 
 static bool EnsureEmojiFace() {
-    if (g_emoji_face)
-        return true;
-    if (!g_ft && FT_Init_FreeType(&g_ft))
-        return false;
-    if (FT_New_Face(g_ft, kTwemojiFont, 0, &g_emoji_face))
-        return false;
-
-    if (g_emoji_face->num_fixed_sizes > 0) {
-        FT_Select_Size(g_emoji_face, 0);
-    } else {
-        FT_Size_RequestRec req{};
-        req.type = FT_SIZE_REQUEST_TYPE_NOMINAL;
-        req.height = kRasterPx * 64;
-        FT_Request_Size(g_emoji_face, &req);
+    if (!g_ft) {
+        if (FT_Init_FreeType(&g_ft))
+            return false;
+        if (FT_Property_Set(g_ft, "ot-svg", "svg-hooks", &plutosvg_ft_hooks)) {
+            std::fprintf(stderr, "emoji: failed to set SVG renderer hooks\n");
+            return false;
+        }
     }
-    g_hb_font = hb_ft_font_create(g_emoji_face, nullptr);
+    if (!g_emoji_face && FT_New_Face(g_ft, kTwemojiFont, 0, &g_emoji_face))
+        return false;
+    if (!g_hb_font)
+        g_hb_font = hb_ft_font_create(g_emoji_face, nullptr);
     return g_hb_font != nullptr;
 }
 
-static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, int& out_h) {
+static bool SetEmojiPixelSize(int px) {
     if (!EnsureEmojiFace())
+        return false;
+    if (g_emoji_pixel_size == px)
+        return true;
+    FT_Size_RequestRec req{};
+    req.type = FT_SIZE_REQUEST_TYPE_NOMINAL;
+    req.height = px * 64;
+    if (FT_Request_Size(g_emoji_face, &req))
+        return false;
+    hb_ft_font_changed(g_hb_font);
+    g_emoji_pixel_size = px;
+    return true;
+}
+
+static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, int& out_h, int target_px) {
+    const int px = target_px > 0 ? target_px : kRasterPx;
+    if (!SetEmojiPixelSize(px))
         return false;
 
     FT_Face face = g_emoji_face;
@@ -279,6 +281,8 @@ static bool Rasterize(const char* utf8, std::vector<uint8_t>& out, int& out_w, i
     pen_x = pen_y = 0;
     for (unsigned i = 0; i < count; ++i) {
         if (FT_Load_Glyph(face, info[i].codepoint, FT_LOAD_COLOR))
+            continue;
+        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL))
             continue;
         const int x = pen_x + (pos[i].x_offset >> 6) + (int)face->glyph->bitmap_left - min_x + pad;
         const int y = pen_y - (pos[i].y_offset >> 6) - (int)face->glyph->bitmap_top - min_y + pad;
@@ -339,59 +343,36 @@ static unsigned Upload(const std::vector<uint8_t>& px, int w, int h) {
     unsigned tex = 0;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
     return tex;
 }
 
-const ToneIcon& GetCachedEmojiTexture(const char* glyph) {
+const ToneIcon& GetCachedEmojiTexture(const char* glyph, int target_px) {
     if (!glyph || !glyph[0]) return g_empty_icon;
-    auto it = g_emoji_cache.find(glyph);
+    const std::string key = std::string(glyph) + "@" + std::to_string(target_px);
+    auto it = g_emoji_cache.find(key);
     if (it != g_emoji_cache.end()) return it->second;
 
     std::vector<uint8_t> px;
     int w = 0, h = 0;
-    if (!Rasterize(glyph, px, w, h))
+    const int px_size = target_px > 0 ? target_px : kRasterPx;
+    if (!Rasterize(glyph, px, w, h, px_size))
         return g_empty_icon;
+
+    FitToSquare(px, w, h, px_size);
 
     ToneIcon icon;
     icon.w = w;
     icon.h = h;
     icon.tex = Upload(px, w, h);
-    auto [ins, _] = g_emoji_cache.emplace(glyph, icon);
+    auto [ins, _] = g_emoji_cache.emplace(key, icon);
     return ins->second;
 }
 
-void EnsureToneIconsLoaded() {
-    if (g_tone_icons_loaded)
-        return;
-    for (int i = 0; i < 6; ++i) {
-        std::vector<uint8_t> px;
-        int w = 0, h = 0;
-        if (!Rasterize(kToneUtf8[i], px, w, h)) {
-            std::fprintf(stderr, "tone_icons: failed to rasterize %d\n", i);
-            continue;
-        }
-        FitToSquare(px, w, h, kToneIconCachePx);
-        g_tone_icons[i].w = w;
-        g_tone_icons[i].h = h;
-        g_tone_icons[i].tex = Upload(px, w, h);
-    }
-    g_tone_icons_loaded = true;
-}
-
-void LoadToneIcons() {
-    EnsureToneIconsLoaded();
-}
-
-void DestroyToneIcons() {
+void DestroyEmojiTextures() {
     std::vector<unsigned> ids;
-    for (int i = 0; i < 6; ++i) {
-        if (g_tone_icons[i].tex)
-            ids.push_back(g_tone_icons[i].tex);
-        g_tone_icons[i] = {};
-    }
     for (auto& [_, icon] : g_emoji_cache) {
         if (icon.tex)
             ids.push_back(icon.tex);
@@ -408,9 +389,9 @@ void DestroyToneIcons() {
         FT_Done_Face(g_emoji_face);
         g_emoji_face = nullptr;
     }
+    g_emoji_pixel_size = 0;
     if (g_ft) {
         FT_Done_FreeType(g_ft);
         g_ft = nullptr;
     }
-    g_tone_icons_loaded = false;
 }
