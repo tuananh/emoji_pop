@@ -405,8 +405,9 @@ bool EmojiPop::Draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
         ImVec2(search_icon_inset, style.FramePadding.y));
     ImGui::SetNextItemWidth(content_w - tone_w - theme_btn - gap * 2.f);
-    ImGui::InputTextWithHint("##search", "Search emoji...", search, sizeof(search),
-        ImGuiInputTextFlags_CallbackAlways, SearchInputCallback);
+    const bool search_submitted = ImGui::InputTextWithHint("##search", "Search emoji...", search, sizeof(search),
+        ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_EnterReturnsTrue, SearchInputCallback);
+    const bool search_active = ImGui::IsItemActive();
     ImGui::PopStyleVar();
     {
         const ImVec2 rmin = ImGui::GetItemRectMin();
@@ -416,13 +417,24 @@ bool EmojiPop::Draw() {
             ImVec2(rmin.x + icon_pad, py),
             ImVec2(search_icon_sz, search_icon_sz));
     }
-    if (std::strcmp(search, last_search) != 0) {
+    const bool search_changed = std::strcmp(search, last_search) != 0;
+    if (search_changed) {
         std::strcpy(last_search, search);
         Filter();
+        highlight_first_result = search[0] != '\0' && result_count > 0;
     }
-    if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_DownArrow) && result_count > 0) {
+    if (search_submitted && highlight_first_result && result_count > 0) {
+        if (category == kEmojiCategoryRecent)
+            PickRaw(recents[results[0]]);
+        else
+            Pick(kEmojis[results[0]]);
+        ImGui::EndPopup();
+        return false;
+    }
+    if (search_active && ImGui::IsKeyPressed(ImGuiKey_DownArrow) && result_count > 0) {
         ImGui::ClearActiveID();
         ImGui::NavMoveRequestCancel();
+        highlight_first_result = false;
         focus_first_emoji = true;
     }
 
@@ -484,6 +496,7 @@ bool EmojiPop::Draw() {
             category != c) {
             category = c;
             Filter();
+            highlight_first_result = search[0] != '\0' && result_count > 0;
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", kEmojiCategoryLabels[c]);
@@ -499,6 +512,8 @@ bool EmojiPop::Draw() {
     const Emoji* hover = nullptr;
 
     ImGui::BeginChild("##grid", ImVec2(0, -(preview_h + style.ItemSpacing.y + 1.f)), false);
+    if (search_changed)
+        ImGui::SetScrollY(0.0f);
     const float spacing = style.ItemSpacing.x;
     const float cell_h = kEmojiCellSize;
     const float avail_w = ImGui::GetContentRegionAvail().x;
@@ -515,6 +530,9 @@ bool EmojiPop::Draw() {
             if (i % cols != 0)
                 ImGui::SameLine();
             ImGui::PushID(i);
+            const bool selected = highlight_first_result && i == 0;
+            if (selected)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
             if (category == kEmojiCategoryRecent) {
                 const char* glyph = recents[results[i]];
                 if (EmojiButton("##em", glyph, ImVec2(cell_w, cell_h)))
@@ -539,6 +557,8 @@ bool EmojiPop::Draw() {
                 if (EmojiCellHovered())
                     SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
             }
+            if (selected)
+                ImGui::PopStyleColor();
             ImGui::PopID();
         }
     }

@@ -20,6 +20,7 @@ struct EmojiPop {
     char last_search[128] = {};
     bool focus_search = false;
     bool focus_first_emoji = false;
+    bool highlight_first_result = false;
     bool open_requested = false;
 
     std::function<void(const char*)> on_pick;
