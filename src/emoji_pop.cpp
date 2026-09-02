@@ -507,34 +507,40 @@ bool EmojiPop::Draw() {
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing, spacing));
     char display_glyph[64];
-    for (int i = 0; i < result_count; ++i) {
-        if (i % cols != 0) ImGui::SameLine();
-        ImGui::PushID(i);
-        if (category == kEmojiCategoryRecent) {
-            const char* glyph = recents[results[i]];
-            if (EmojiButton("##em", glyph, ImVec2(cell_w, cell_h)))
-                PickRaw(glyph);
-            if (focus_first_emoji && i == 0) {
-                ImGui::FocusItem();
-                ImGui::SetNavCursorVisible(true);
-                focus_first_emoji = false;
+    ImGuiListClipper clipper;
+    clipper.Begin((result_count + cols - 1) / cols, cell_h + spacing);
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart * cols;
+             i < std::min(clipper.DisplayEnd * cols, result_count); ++i) {
+            if (i % cols != 0)
+                ImGui::SameLine();
+            ImGui::PushID(i);
+            if (category == kEmojiCategoryRecent) {
+                const char* glyph = recents[results[i]];
+                if (EmojiButton("##em", glyph, ImVec2(cell_w, cell_h)))
+                    PickRaw(glyph);
+                if (focus_first_emoji && i == 0) {
+                    ImGui::FocusItem();
+                    ImGui::SetNavCursorVisible(true);
+                    focus_first_emoji = false;
+                }
+                if (EmojiCellHovered())
+                    SetEmojiPreview(glyph, FindEmojiByGlyph(glyph), preview_glyph, &hover);
+            } else {
+                const Emoji& e = kEmojis[results[i]];
+                BuildGlyph(e, tone, display_glyph, sizeof(display_glyph));
+                if (EmojiButton("##em", display_glyph, ImVec2(cell_w, cell_h)))
+                    Pick(e);
+                if (focus_first_emoji && i == 0) {
+                    ImGui::FocusItem();
+                    ImGui::SetNavCursorVisible(true);
+                    focus_first_emoji = false;
+                }
+                if (EmojiCellHovered())
+                    SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
             }
-            if (EmojiCellHovered())
-                SetEmojiPreview(glyph, FindEmojiByGlyph(glyph), preview_glyph, &hover);
-        } else {
-            const Emoji& e = kEmojis[results[i]];
-            BuildGlyph(e, tone, display_glyph, sizeof(display_glyph));
-            if (EmojiButton("##em", display_glyph, ImVec2(cell_w, cell_h)))
-                Pick(e);
-            if (focus_first_emoji && i == 0) {
-                ImGui::FocusItem();
-                ImGui::SetNavCursorVisible(true);
-                focus_first_emoji = false;
-            }
-            if (EmojiCellHovered())
-                SetEmojiPreview(display_glyph, &e, preview_glyph, &hover);
+            ImGui::PopID();
         }
-        ImGui::PopID();
     }
     ImGui::PopStyleVar();
     ImGui::EndChild();
